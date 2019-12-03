@@ -52,9 +52,9 @@ static int spawn_source(void) {
     close(sv[1]);
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("oh\n");
-    sleep(1);
+    usleep(250000);
     printf("hello\n");
-    sleep(1);
+    usleep(250000);
     _exit(0);
   }
 
@@ -95,14 +95,20 @@ done:
   return status;
 }
 
+struct single_data {
+  struct iomux_handler h; /* must be first */
+  size_t len;
+  char data[128];
+};
+
 static void single_handler_func(struct iomux_ctx *ctx,
     struct iomux_handler *h) {
-  char buf[128];
+  struct single_data *data = (struct single_data *)h;
   ssize_t n;
 
-  n = read(h->fd, buf, sizeof(buf));
+  n = read(h->fd, data->data + data->len, sizeof(data->data) - data->len);
   if (n > 0) {
-    write(STDOUT_FILENO, buf, n);
+    data->len += n;
   }
 }
 
@@ -111,7 +117,7 @@ static int test_run_single(void) {
   struct iomux_ctx ctx;
   int ret;
   int fd;
-  struct iomux_handler h = {0};
+  struct single_data data = {0};
 
   signal(SIGCHLD, SIG_IGN);
 
@@ -127,9 +133,9 @@ static int test_run_single(void) {
     goto iomux_cleanup;
   }
 
-  h.fd = fd;
-  h.source_func = &single_handler_func;
-  ret = iomux_add_source(&ctx, &h);
+  data.h.fd = fd;
+  data.h.source_func = &single_handler_func;
+  ret = iomux_add_source(&ctx, &data.h);
   if (ret != 0) {
     TEST_LOGF("iomux_add_source: %s", strerror(errno));
     close(fd);
@@ -139,6 +145,12 @@ static int test_run_single(void) {
   ret = iomux_run(&ctx);
   if (ret != 0) {
     TEST_LOGF("iomux_run: %s", strerror(errno));
+    goto iomux_cleanup;
+  }
+
+  if (data.len != sizeof("oh\nhello\n") - 1 ||
+      memcmp(data.data, "oh\nhello\n", data.len) != 0) {
+    TEST_LOGF("unexpected data in buffer of length %zu\n", data.len);
     goto iomux_cleanup;
   }
 
