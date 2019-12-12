@@ -26,16 +26,18 @@ lib_iomux_SRC_FreeBSD = lib/iomux_kqueue.c
 lib_iomux_SRC := ${lib_iomux_SRC_${UNAME_S}}
 lib_iomux_OBJ := ${lib_iomux_SRC:.c=.o}
 
-CFLAGS += -I.
-SRCS    = lib/fs.c lib/fs_test.c ${lib_iomux_SRC} lib/iomux_test.c
+CFLAGS += -I. -Wall -Werror
+SRCS    = lib/fs.c lib/fs_test.c ${lib_iomux_SRC} lib/iomux_test.c \
+	  app/hexec.c
 OBJS    = $(SRCS:.c=.o)
+APPS    = app/hexec
 TESTS   = lib/fs_test lib/iomux_test
 
 RM ?= rm -f
 
 .PHONY: clean all check
 
-all: check
+all: $(APPS) check
 
 ${lib_iomux_OBJ}: ${lib_iomux_SRC} lib/iomux.h lib/macros.h
 lib/iomux_test.o: lib/iomux_test.c lib/iomux.h lib/test.h
