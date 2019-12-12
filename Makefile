@@ -51,7 +51,7 @@ lib_fs_test_DEPS = lib/fs_test.o lib/fs.o
 lib/fs_test: $(lib_fs_test_DEPS)
 	$(CC) $(CFLAGS) -o $@ $(lib_fs_test_DEPS) $(LDFLAGS)
 
-app_hexec_DEPS = app/hexec.o lib/fs.o
+app_hexec_DEPS = app/hexec.o lib/fs.o ${lib_iomux_OBJ}
 app/hexec: $(app_hexec_DEPS)
 	$(CC) $(CFLAGS) -o $@ $(app_hexec_DEPS) $(LDFLAGS)
 

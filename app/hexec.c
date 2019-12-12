@@ -26,8 +26,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
+#include <errno.h>
 
 #include "lib/fs.h"
+#include "lib/iomux.h"
 
 static struct opts {
   const char *listen;
@@ -58,10 +60,34 @@ static int int_or_die(const char *name, const char *s) {
   return (int)val;
 }
 
+static void on_accept(struct iomux_ctx *ctx, struct iomux_handler *h) {
+  int ret;
+
+  for (;;) {
+    ret = accept4(h->fd, NULL, 0, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    if (ret < 0) {
+      if (errno == ECONNABORTED || errno == EINTR) {
+        continue;
+      } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
+        break;
+      } else {
+        perror("accept4");
+        exit(EXIT_FAILURE); /* TODO: Handle better. Exit the event-loop */
+      }
+    }
+
+    close(ret); /* TODO: Do something else */
+  }
+}
+
 int main(int argc, char *argv[]) {
   int ret;
   int lfd;
   int status = EXIT_FAILURE;
+  struct iomux_ctx iomux;
+  struct iomux_handler listener = {
+    .source_func = on_accept,
+  };
 
   while ((ret = getopt_long(argc, argv, optstr_, options_, NULL)) != -1) {
     switch (ret) {
@@ -74,8 +100,12 @@ int main(int argc, char *argv[]) {
     case 'h':
     default:
       fprintf(stderr,
-          "usage: %s [opts]\n",
-          argv[0]);
+          "usage: %s [opts]\n"
+          "opts:\n"
+          "  -l,--listen  <path>    Path to listening socket\n"
+          "  -b,--backlog    <n>    Max number of pending connections\n"
+          "  -h,--help              This text\n"
+          , argv[0]);
       return EXIT_FAILURE;
     }
   }
@@ -91,8 +121,29 @@ int main(int argc, char *argv[]) {
     goto done;
   }
 
+  ret = iomux_init(&iomux);
+  if (ret != 0) {
+    perror("iomux_init");
+    goto close_lfd;
+  }
+
+  listener.fd = lfd;
+  ret = iomux_add_source(&iomux, &listener);
+  if (ret < 0) {
+    perror("iomux_add_source");
+    goto iomux_cleanup;
+  }
+
+  ret = iomux_run(&iomux);
+  if (ret < 0) {
+    perror("iomux_run");
+    goto iomux_cleanup;
+  }
+
   status = EXIT_SUCCESS;
-/*close_lfd:*/
+iomux_cleanup:
+  iomux_cleanup(&iomux);
+close_lfd:
   close(lfd);
 done:
   return status;
