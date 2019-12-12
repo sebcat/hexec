@@ -19,42 +19,81 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 
+#include <sys/socket.h> /* SOMAXCONN */
+#include <unistd.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
 
+#include "lib/fs.h"
+
 static struct opts {
-  int async;
-} opts_;
-
-static const char *optstr_ = "ah";
-
-static struct option options_[] = {
-  {"async", no_argument, NULL, 'a'},
-  {NULL,    0,           NULL, 0},
+  const char *listen;
+  int backlog;
+} opts_ = {
+  .backlog = SOMAXCONN,
 };
 
-static void usage(const char *argv0) {
-  fprintf(stderr,
-      "usage: %s [opts]\n",
-      argv0);
+static const char *optstr_ = "l:b:h";
+
+static struct option options_[] = {
+  {"listen",  required_argument, NULL, 'l'},
+  {"backlog", required_argument, NULL, 'b'},
+  {"help",    no_argument,       NULL, 'h'},
+  {NULL,      0,                 NULL, 0},
+};
+
+static int int_or_die(const char *name, const char *s) {
+  long val;
+  char *end;
+
+  val = strtol(s, &end, 10);
+  if (val < INT_MIN || val > INT_MAX || *end != '\0') {
+    fprintf(stderr, "%s: invalid integer\n", name);
+    exit(EXIT_FAILURE);
+  }
+
+  return (int)val;
 }
 
 int main(int argc, char *argv[]) {
-  int ch;
+  int ret;
+  int lfd;
+  int status = EXIT_FAILURE;
 
-  while ((ch = getopt_long(argc, argv, optstr_, options_, NULL)) != -1) {
-    switch (ch) {
-    case 'a':
-      opts_.async = 1;
+  while ((ret = getopt_long(argc, argv, optstr_, options_, NULL)) != -1) {
+    switch (ret) {
+    case 'l':
+      opts_.listen = optarg;
+      break;
+    case 'b':
+      opts_.backlog = int_or_die("backlog", optarg);
       break;
     case 'h':
     default:
-      usage(argv[0]);
+      fprintf(stderr,
+          "usage: %s [opts]\n",
+          argv[0]);
       return EXIT_FAILURE;
     }
   }
 
-  return 0;
+  if (opts_.listen == NULL) {
+    fprintf(stderr, "listen: missing path\n");
+    goto done;
+  }
+
+  lfd = fs_mksock(opts_.listen, opts_.backlog);
+  if (lfd < 0) {
+    perror(opts_.listen);
+    goto done;
+  }
+
+  status = EXIT_SUCCESS;
+/*close_lfd:*/
+  close(lfd);
+done:
+  return status;
 }
