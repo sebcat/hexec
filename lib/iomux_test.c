@@ -117,7 +117,7 @@ static int test_run_single(void) {
   struct iomux_ctx ctx;
   int ret;
   int fd;
-  struct single_data data = {0};
+  struct single_data data = {{0}};
 
   signal(SIGCHLD, SIG_IGN);
 
