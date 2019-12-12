@@ -37,6 +37,7 @@ int fs_mksock(const char *path, int backlog) {
   int ret;
   struct sockaddr_un sun = {0};
   struct stat sb = {0};
+  mode_t oumask;
 
   sun.sun_family = AF_UNIX;
   ret = snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", path);
@@ -66,20 +67,19 @@ int fs_mksock(const char *path, int backlog) {
     goto fail;
   }
 
+  /* fchmod on socket in POSIX is undefined behavior. chmod on path is
+   * TOCTOU... forking a child, setting umask and passing fd from child
+   * to parent is portable, but has its own issues. Let's just modify
+   * the umask of the current process and make this function unsafe for
+   * threaded use */
+  oumask = umask(0);
   ret = bind(fd, (struct sockaddr *)&sun, sizeof(sun));
+  umask(oumask);
   if (ret < 0) {
     goto close_fd;
   }
 
   ret = listen(fd, backlog);
-  if (ret < 0) {
-    goto close_fd;
-  }
-
-  /* fchmod on socket in POSIX is undefined behavior. chmod on path is
-   * TOCTOU... forking a child, setting umask and passing fd from child
-   * to parent is portable, but has its own issues. Let's chmod for now */
-  ret = chmod(sun.sun_path, 0777);
   if (ret < 0) {
     goto close_fd;
   }
