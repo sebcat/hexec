@@ -24,6 +24,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include "lib/fs.h"
 #include "lib/test.h"
@@ -57,21 +58,39 @@ static int test_mkdir_all(void) {
 }
 
 static int test_mksock(void) {
+  int fd;
   int ret;
+  int status = TEST_FAIL;
 
-  ret = fs_mksock(TESTSOCK, SOMAXCONN);
-  if (ret < 0) {
+  fd = fs_mksock(TESTSOCK, SOMAXCONN);
+  if (fd < 0) {
     TEST_LOGF("%s: %s", TESTSOCK, strerror(errno));
-    return TEST_FAIL;
+    goto done;
   }
 
-  ret = close(ret);
+  /* fs_mksock sockets should have FD_CLOEXEC set */
+  ret = fcntl(fd, F_GETFD);
+  if ((ret & FD_CLOEXEC) != FD_CLOEXEC) {
+    TEST_LOG("fcntl: FD_CLOEXEC not set");
+    goto close_fd;
+  }
+
+  /* fs_mksock sockets should have O_NONBLOCK set */
+  ret = fcntl(fd, F_GETFL);
+  if ((ret & O_NONBLOCK) != O_NONBLOCK) {
+    TEST_LOG("fcntl: O_NONBLOCK not set");
+    goto close_fd;
+  }
+
+  status = TEST_OK;
+close_fd:
+  ret = close(fd);
   if (ret != 0) {
     TEST_LOGF("close: %s", strerror(errno));
-    return TEST_FAIL;
+    status = TEST_FAIL;
   }
-
-  return TEST_OK;
+done:
+  return status;
 }
 
 static int test_verify(void) {

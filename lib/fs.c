@@ -62,7 +62,8 @@ int fs_mksock(const char *path, int backlog) {
     goto fail;
   }
 
-  fd = socket(sun.sun_family, SOCK_STREAM, 0);
+  fd = socket(sun.sun_family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
+      0);
   if (fd < 0) {
     goto fail;
   }

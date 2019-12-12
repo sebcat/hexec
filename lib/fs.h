@@ -23,9 +23,9 @@
 #define LIB_FS_H__
 
 /* fs_mksock --
- *   Creates a domain socket and chowns it to 777. See listen(2) for
- *   backlog. Returns fd on success, -1 on error. Sets errno. Modifies
- *   umask internally. Not thread safe. */
+ *   Creates a non-blocking, close-on-exec domain socket with umask 0. See
+ *   listen(2) for backlog. Returns fd on success, -1 on error. Sets errno.
+ *   Modifies umask internally. Not thread safe. */
 int fs_mksock(const char *path, int backlog);
 
 /* fs_mkdir_all --
