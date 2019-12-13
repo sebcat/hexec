@@ -21,6 +21,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/event.h>
 
@@ -30,13 +31,14 @@
 int iomux_init(struct iomux_ctx *ctx) {
   int qfd;
 
+  memset(ctx, 0, sizeof(*ctx));
+
   qfd = kqueue();
   if (qfd < 0) {
     return -1;
   }
 
   ctx->qfd = qfd;
-  ctx->nhandlers = 0;
   return 0;
 }
 
@@ -116,6 +118,8 @@ int iomux_run(struct iomux_ctx *ctx) {
   struct kevent evs[IOMUX_NEVS];
   int ret = 0;
 
+  ctx->status = 0;
+  ctx->flags |= IOMUXF_RUNNING;
   while (ctx->nhandlers > 0) {
     /* Room for improvement: add new events here instead of just
      * waiting for them */
@@ -123,9 +127,14 @@ int iomux_run(struct iomux_ctx *ctx) {
     if (ret > 0) {
       handle_events(ctx, evs, ret);
     } else if (ret < 0 && errno != EINTR) {
-      return -1;
+      iomux_err(ctx);
+    }
+
+    if (!(ctx->flags & IOMUXF_RUNNING)) {
+      break;
     }
   }
 
-  return 0;
+  ctx->flags &= ~IOMUXF_RUNNING;
+  return ctx->status;
 }

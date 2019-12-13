@@ -23,6 +23,9 @@
 
 #define IOMUX_NEVS 16
 
+/* struct iomux_ctx flags */
+#define IOMUXF_RUNNING   (1 << 0) /* event loop is running */
+
 struct iomux_ctx;
 
 struct iomux_handler {
@@ -31,6 +34,8 @@ struct iomux_handler {
 };
 
 struct iomux_ctx {
+  int flags;
+  int status;
   int qfd;
   int nhandlers;
   struct iomux_handler *evs_to_close[IOMUX_NEVS];
@@ -53,7 +58,19 @@ int iomux_cleanup(struct iomux_ctx *ctx);
 int iomux_add_source(struct iomux_ctx *ctx, struct iomux_handler *h);
 
 /* iomux_run --
- *   Run the multiplexer */
+ *   Run the multiplexer. Returns 0 on success, -1 on failure */
 int iomux_run(struct iomux_ctx *ctx);
 
+/* iomux_break --
+ *   Break out of the multiplexer from an event handler. */
+static inline void iomux_break(struct iomux_ctx *ctx) {
+  ctx->flags &= ~IOMUXF_RUNNING;
+}
+
+/* iomux_err --
+ * Signal an error to the multiplexer, causing iomux_run to fail */
+static inline void iomux_err(struct iomux_ctx *ctx) {
+  ctx->status = -1;
+  iomux_break(ctx);
+}
 #endif
