@@ -72,11 +72,12 @@ static void on_accept(struct iomux_ctx *ctx, struct iomux_handler *h) {
         break;
       } else {
         perror("accept4");
-        exit(EXIT_FAILURE); /* TODO: Handle better. Exit the event-loop */
+        iomux_err(ctx);
       }
     }
 
     close(ret); /* TODO: Do something else */
+    iomux_break(ctx);
   }
 }
 
