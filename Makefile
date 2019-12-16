@@ -56,7 +56,7 @@ app/hexec: $(app_hexec_DEPS)
 	$(CC) $(CFLAGS) -o $@ $(app_hexec_DEPS) $(LDFLAGS)
 
 clean:
-	$(RM) $(OBJS) $(TESTS)
+	$(RM) $(OBJS) $(APPS) $(TESTS)
 
 check: $(TESTS)
 	@for T in $(TESTS); do \
