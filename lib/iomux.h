@@ -40,8 +40,8 @@ struct iomux_ctx {
   int status;
   int qfd;
   int nhandlers;
-  struct iomux_handler *evs_to_close[IOMUX_NEVS];
-  int nevs_to_close;
+  struct iomux_handler *evs_to_close[IOMUX_NEVS]; /* kqueue only */
+  int nevs_to_close; /* kqueue only */
 };
 
 /* iomux_init --
@@ -58,6 +58,12 @@ int iomux_cleanup(struct iomux_ctx *ctx);
  *   If/when the file descriptor becomes readable, the source_func of
  *   the handler will be called. Returns -1 on error, 0 on success. */
 int iomux_add_source(struct iomux_ctx *ctx, struct iomux_handler *h);
+
+/* iomux_close_source --
+ *   Remove a source handler for a file descriptor from the iomux context and
+ *   close the file descriptor. This function should only be called when
+ *   iomux_run is active. Returns -1 on error, 0 on success. */
+int iomux_close_source(struct iomux_ctx *ctx, struct iomux_handler *h);
 
 /* iomux_run --
  *   Run the multiplexer. Returns 0 on success, -1 on failure */

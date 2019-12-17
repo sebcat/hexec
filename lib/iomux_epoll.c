@@ -19,21 +19,20 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 
-#include <assert.h>
+#include <sys/epoll.h>
+#include <unistd.h>
 #include <errno.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/event.h>
 
-#include "lib/macros.h"
 #include "lib/iomux.h"
+#include "lib/macros.h"
 
 int iomux_init(struct iomux_ctx *ctx) {
   int qfd;
 
   memset(ctx, 0, sizeof(*ctx));
 
-  qfd = kqueue();
+  qfd = epoll_create1(EPOLL_CLOEXEC);
   if (qfd < 0) {
     return -1;
   }
@@ -54,13 +53,12 @@ int iomux_cleanup(struct iomux_ctx *ctx) {
 }
 
 int iomux_add_source(struct iomux_ctx *ctx, struct iomux_handler *h) {
-  struct kevent ev = {0};
+  struct epoll_event ev;
   int ret;
 
-  /* Room for improvement: buffer EV_ADD to a chunk and add the chunk with
-   * one call to kevent, while also getting any outstanding events */
-  EV_SET(&ev, h->fd, EVFILT_READ, EV_ADD, 0, 0, h);
-  ret = kevent(ctx->qfd, &ev, 1, NULL, 0, NULL);
+  ev.events = EPOLLIN;
+  ev.data.ptr = h;
+  ret = epoll_ctl(ctx->qfd, EPOLL_CTL_ADD, h->fd, &ev);
   if (ret < 0) {
     return -1;
   }
@@ -69,66 +67,49 @@ int iomux_add_source(struct iomux_ctx *ctx, struct iomux_handler *h) {
   return 0;
 }
 
-static void queue_close(struct iomux_ctx *ctx, struct iomux_handler *h) {
-  size_t i;
+int iomux_close_source(struct iomux_ctx *ctx, struct iomux_handler *h) {
+  struct epoll_event ev;
+  int ret;
 
-  assert(ctx->nevs_to_close < ARRAY_SIZE(ctx->evs_to_close));
-  for (i = 0; i < ctx->nevs_to_close; i++) {
-    if (ctx->evs_to_close[i] == h) {
-      return; /* already queued for closing - do not enqueue again */
-    }
+  /* pre 2.6.9 kernels required event to be set even though its ignored */
+  ev.events = EPOLLIN;
+  ev.data.ptr = h;
+  ret = epoll_ctl(ctx->qfd, EPOLL_CTL_DEL, h->fd, &ev);
+  if (ret < 0) {
+    return -1;
   }
 
-  ctx->evs_to_close[ctx->nevs_to_close++] = h;
-}
+  ret = close(h->fd);
+  ctx->nhandlers--;
+  if (ret < 0) {
+    return -1;
+  }
 
-int iomux_close_source(struct iomux_ctx *ctx, struct iomux_handler *h) {
-  queue_close(ctx, h);
   return 0;
 }
 
-static void handle_events(struct iomux_ctx *ctx, struct kevent *evs,
+static void handle_events(struct iomux_ctx *ctx, struct epoll_event *evs,
     size_t nevs) {
-  size_t i;
   struct iomux_handler *h;
-  int n;
-
-  ctx->nevs_to_close = 0; /* clear # of handlers to close */
+  size_t i;
 
   for (i = 0; i < nevs; i++) {
-    h = evs[i].udata;
+    h = evs[i].data.ptr;
 
-    if ((evs[i].flags & EV_ERROR) != 0 &&
-        (evs[i].filter == EVFILT_READ || evs[i].filter == EVFILT_WRITE)) {
-      queue_close(ctx, h);
-    } else if (evs[i].filter == EVFILT_READ) {
-      if (evs[i].data > 0 && h->source_func != NULL) {
-        h->source_func(ctx, h);
-      }
-
-      if (evs[i].flags & EV_EOF) {
-        queue_close(ctx, h);
-      }
+    if ((evs[i].events & EPOLLIN) == EPOLLIN) {
+      h->source_func(ctx, h);
     }
-  }
-
-  /* close file descriptors queued for closing */
-  for (n = 0; n < ctx->nevs_to_close; n++) {
-    close(h->fd);
-    ctx->nhandlers--;
   }
 }
 
 int iomux_run(struct iomux_ctx *ctx) {
-  struct kevent evs[IOMUX_NEVS];
+  struct epoll_event evs[IOMUX_NEVS];
   int ret = 0;
 
   ctx->status = 0;
   ctx->flags |= IOMUXF_RUNNING;
   while (ctx->nhandlers > 0) {
-    /* Room for improvement: add new events here instead of just
-     * waiting for them */
-    ret = kevent(ctx->qfd, NULL, 0, evs, ARRAY_SIZE(evs), NULL);
+    ret = epoll_wait(ctx->qfd, evs, ARRAY_SIZE(evs), -1);
     if (ret > 0) {
       handle_events(ctx, evs, ret);
     } else if (ret < 0 && errno != EINTR) {
@@ -144,3 +125,4 @@ int iomux_run(struct iomux_ctx *ctx) {
   ctx->flags &= ~IOMUXF_RUNNING;
   return ctx->status;
 }
+

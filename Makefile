@@ -23,6 +23,7 @@ UNAME_S != uname -s
 
 # conditional compilation for platform dependent source code
 lib_iomux_SRC_FreeBSD = lib/iomux_kqueue.c
+lib_iomux_SRC_Linux   = lib/iomux_epoll.c
 lib_iomux_SRC := ${lib_iomux_SRC_${UNAME_S}}
 lib_iomux_OBJ := ${lib_iomux_SRC:.c=.o}
 

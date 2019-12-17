@@ -105,10 +105,16 @@ static void single_handler_func(struct iomux_ctx *ctx,
     struct iomux_handler *h) {
   struct single_data *data = (struct single_data *)h;
   ssize_t n;
+  int ret;
 
   n = read(h->fd, data->data + data->len, sizeof(data->data) - data->len);
   if (n > 0) {
     data->len += n;
+  } else {
+    ret = iomux_close_source(ctx, h);
+    if (ret < 0) {
+      iomux_err(ctx);
+    }
   }
 }
 
