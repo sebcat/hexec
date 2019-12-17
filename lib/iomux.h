@@ -26,6 +26,8 @@
 /* struct iomux_ctx flags */
 #define IOMUXF_RUNNING   (1 << 0) /* event loop is running */
 
+#define IOMUX_HANDLER(x) ((struct iomux_handler *)(x))
+
 struct iomux_ctx;
 
 struct iomux_handler {
