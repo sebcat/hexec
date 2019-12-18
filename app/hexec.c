@@ -35,22 +35,26 @@
 #include "lib/iomux.h"
 #include "app/hexec_sync.h"
 
-#define DEFAULT_BACKLOG    SOMAXCONN
+#define DEFAULT_BACKLOG        SOMAXCONN
+#define DEFAULT_SYNC_TIMEOUT   10
 
 static struct opts {
   const char *listen;
   int backlog;
+  int sync_timeout;
 } opts_ = {
-  .backlog  = DEFAULT_BACKLOG,
+  .backlog      = DEFAULT_BACKLOG,
+  .sync_timeout = DEFAULT_SYNC_TIMEOUT,
 };
 
-static const char *optstr_ = "l:b:h";
+static const char *optstr_ = "l:b:t:h";
 
 static struct option options_[] = {
-  {"listen",  required_argument, NULL, 'l'},
-  {"backlog", required_argument, NULL, 'b'},
-  {"help",    no_argument,       NULL, 'h'},
-  {NULL,      0,                 NULL, 0},
+  {"listen",       required_argument, NULL, 'l'},
+  {"backlog",      required_argument, NULL, 'b'},
+  {"sync-timeout", required_argument, NULL, 't'},
+  {"help",         no_argument,       NULL, 'h'},
+  {NULL,           0,                 NULL, 0},
 };
 
 static int int_or_die(const char *name, const char *s) {
@@ -80,6 +84,13 @@ int main(int argc, char *argv[]) {
       break;
     case 'b':
       opts_.backlog = int_or_die("backlog", optarg);
+      break;
+    case 't':
+      opts_.sync_timeout = int_or_die("sync-timeout", optarg);
+      if (opts_.sync_timeout < 0) {
+        fprintf(stderr, "sync-timeout: invalid value\n");
+        goto usage;
+      }
       break;
     case 'h':
     default:
@@ -111,6 +122,7 @@ int main(int argc, char *argv[]) {
 
   sync_opts.argv = argv;
   sync_opts.argc = argc;
+  sync_opts.timeout = opts_.sync_timeout;
   status = hexec_sync_run(&sync_opts, lfd);
 /* close_lfd: */
   close(lfd);

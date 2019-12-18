@@ -71,6 +71,11 @@ static void on_accept(struct iomux_ctx *iomux, struct iomux_handler *h) {
       close(ret);
       iomux_cleanup(iomux);
       close(h->fd);
+
+      if (listener->opts.timeout > 0) {
+        alarm(listener->opts.timeout);
+      }
+
       execv(listener->opts.argv[0], listener->opts.argv);
       perror(listener->opts.argv[0]);
       _exit(EXIT_FAILURE);
