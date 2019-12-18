@@ -29,7 +29,7 @@ lib_iomux_OBJ := ${lib_iomux_SRC:.c=.o}
 
 CFLAGS += -I. -Wall -Werror
 SRCS    = lib/fs.c lib/fs_test.c ${lib_iomux_SRC} lib/iomux_test.c \
-	  app/hexec.c
+	  app/hexec_sync.c app/hexec.c
 OBJS    = $(SRCS:.c=.o)
 APPS    = app/hexec
 TESTS   = lib/fs_test lib/iomux_test
@@ -52,7 +52,7 @@ lib_fs_test_DEPS = lib/fs_test.o lib/fs.o
 lib/fs_test: $(lib_fs_test_DEPS)
 	$(CC) $(CFLAGS) -o $@ $(lib_fs_test_DEPS) $(LDFLAGS)
 
-app_hexec_DEPS = app/hexec.o lib/fs.o ${lib_iomux_OBJ}
+app_hexec_DEPS = app/hexec.o app/hexec_sync.o lib/fs.o ${lib_iomux_OBJ}
 app/hexec: $(app_hexec_DEPS)
 	$(CC) $(CFLAGS) -o $@ $(app_hexec_DEPS) $(LDFLAGS)
 

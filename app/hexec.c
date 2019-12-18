@@ -33,10 +33,9 @@
 
 #include "lib/fs.h"
 #include "lib/iomux.h"
+#include "app/hexec_sync.h"
 
 #define DEFAULT_BACKLOG    SOMAXCONN
-
-#define SYNC_LISTENER(x) ((struct sync_listener *)(x))
 
 static struct opts {
   const char *listen;
@@ -53,97 +52,6 @@ static struct option options_[] = {
   {"help",    no_argument,       NULL, 'h'},
   {NULL,      0,                 NULL, 0},
 };
-
-struct sync_listener {
-  struct iomux_handler handler; /* must be first */
-  char **argv;
-  int argc;
-};
-
-static void on_accept(struct iomux_ctx *iomux, struct iomux_handler *h) {
-  int ret;
-  pid_t pid;
-  struct sync_listener *listener = SYNC_LISTENER(h);
-
-  for (;;) {
-    ret = accept(h->fd, NULL, 0);
-    if (ret < 0) {
-      if (errno == ECONNABORTED || errno == EINTR) {
-        continue; /* possibly more connections in queue - try again */
-      } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
-        break;
-      } else {
-        perror("accept");
-        goto fail;
-      }
-    }
-
-    pid = fork();
-    if (pid < 0) {
-      perror("fork");
-      close(ret);
-      goto fail;
-    } else if (pid == 0) {
-      signal(SIGINT, SIG_DFL);
-      signal(SIGHUP, SIG_DFL);
-      signal(SIGTERM, SIG_DFL);
-      signal(SIGCHLD, SIG_DFL);
-      dup2(ret, STDIN_FILENO);
-      dup2(ret, STDOUT_FILENO);
-      dup2(ret, STDERR_FILENO);
-      close(ret);
-      iomux_cleanup(iomux);
-      close(h->fd);
-      execv(listener->argv[0], listener->argv);
-      perror(listener->argv[0]);
-      _exit(EXIT_FAILURE);
-    } else {
-      close(ret);
-    }
-  }
-
-  return;
-fail:
-  iomux_err(iomux);
-}
-
-int run_sync(int fd, int argc, char **argv) {
-  int ret;
-  struct iomux_ctx iomux;
-  int status = EXIT_FAILURE;
-  struct sync_listener listener = {
-    .handler = {
-      .fd          = fd,
-      .source_func = on_accept,
-    },
-    .argv = argv,
-    .argc = argc,
-  };
-
-  ret = iomux_init(&iomux);
-  if (ret != 0) {
-    perror("iomux_init");
-    goto done;
-  }
-
-  ret = iomux_add_source(&iomux, IOMUX_HANDLER(&listener));
-  if (ret < 0) {
-    perror("iomux_add_source");
-    goto iomux_cleanup;
-  }
-
-  ret = iomux_run(&iomux);
-  if (ret < 0) {
-    perror("iomux_run");
-    goto iomux_cleanup;
-  }
-
-  status = EXIT_SUCCESS;
-iomux_cleanup:
-  iomux_cleanup(&iomux);
-done:
-  return status;
-}
 
 static int int_or_die(const char *name, const char *s) {
   long val;
@@ -163,6 +71,7 @@ int main(int argc, char *argv[]) {
   int lfd;
   int status = EXIT_FAILURE;
   const char *argv0 = argv[0];
+  struct hexec_sync_opts sync_opts = {0};
 
   while ((ret = getopt_long(argc, argv, optstr_, options_, NULL)) != -1) {
     switch (ret) {
@@ -200,7 +109,9 @@ int main(int argc, char *argv[]) {
     goto done;
   }
 
-  status = run_sync(lfd, argc, argv);
+  sync_opts.argv = argv;
+  sync_opts.argc = argc;
+  status = hexec_sync_run(&sync_opts, lfd);
 /* close_lfd: */
   close(lfd);
 done:
