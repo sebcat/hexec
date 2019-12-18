@@ -120,6 +120,7 @@ static int test_run_single(void) {
   struct single_data data = {{0}};
 
   signal(SIGCHLD, SIG_IGN);
+  alarm(5);
 
   ret = iomux_init(&ctx);
   if (ret != 0) {
@@ -162,6 +163,7 @@ iomux_cleanup:
     status = TEST_FAIL;
   }
 done:
+  alarm(0);
   signal(SIGCHLD, SIG_DFL);
   return status;
 }
