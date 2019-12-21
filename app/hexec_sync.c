@@ -20,6 +20,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <sys/socket.h>
 #include <errno.h>
 #include <stdio.h>
@@ -27,23 +28,24 @@
 #include <signal.h>
 #include <unistd.h>
 
-#include "lib/iomux.h"
 #include "app/hexec_sync.h"
 
-#define SYNC_LISTENER(x) ((struct sync_listener *)(x))
+static volatile sig_atomic_t got_sigchld_ = 0;
 
-struct sync_listener {
-  struct iomux_handler handler; /* must be first */
-  struct hexec_sync_opts opts;
-};
+static int mask_sigchld(int how) {
+  sigset_t sigmask;
 
-static void on_accept(struct iomux_ctx *iomux, struct iomux_handler *h) {
+  sigemptyset(&sigmask);
+  sigaddset(&sigmask, SIGCHLD);
+  return sigprocmask(how, &sigmask, NULL);
+}
+
+static void on_accept(struct hexec_sync_opts *opts, int fd) {
   int ret;
   pid_t pid;
-  struct sync_listener *listener = SYNC_LISTENER(h);
 
   for (;;) {
-    ret = accept(h->fd, NULL, 0);
+    ret = accept(fd, NULL, 0);
     if (ret < 0) {
       if (errno == ECONNABORTED || errno == EINTR) {
         continue; /* possibly more connections in queue - try again */
@@ -51,7 +53,7 @@ static void on_accept(struct iomux_ctx *iomux, struct iomux_handler *h) {
         break;
       } else {
         perror("accept");
-        goto fail;
+        break;
       }
     }
 
@@ -59,25 +61,25 @@ static void on_accept(struct iomux_ctx *iomux, struct iomux_handler *h) {
     if (pid < 0) {
       perror("fork");
       close(ret);
-      goto fail;
+      continue;
     } else if (pid == 0) {
+      mask_sigchld(SIG_UNBLOCK);
+      signal(SIGCHLD, SIG_DFL);
       signal(SIGINT, SIG_DFL);
       signal(SIGHUP, SIG_DFL);
       signal(SIGTERM, SIG_DFL);
-      signal(SIGCHLD, SIG_DFL);
       dup2(ret, STDIN_FILENO);
       dup2(ret, STDOUT_FILENO);
       dup2(ret, STDERR_FILENO);
       close(ret);
-      iomux_cleanup(iomux);
-      close(h->fd);
+      close(fd);
 
-      if (listener->opts.timeout > 0) {
-        alarm(listener->opts.timeout);
+      if (opts->timeout > 0) {
+        alarm(opts->timeout);
       }
 
-      execv(listener->opts.argv[0], listener->opts.argv);
-      perror(listener->opts.argv[0]);
+      execv(opts->argv[0], opts->argv);
+      perror(opts->argv[0]);
       _exit(EXIT_FAILURE);
     } else {
       close(ret);
@@ -85,43 +87,69 @@ static void on_accept(struct iomux_ctx *iomux, struct iomux_handler *h) {
   }
 
   return;
-fail:
-  iomux_err(iomux);
+}
+
+static void on_sigchld(int sig) {
+  got_sigchld_ = 1;
+}
+
+static void reap_children(void) {
+  pid_t pid;
+  int status;
+
+  while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+    /* TODO: Implement */
+  }
 }
 
 int hexec_sync_run(struct hexec_sync_opts *opts, int fd) {
+  sigset_t sigmask;
+  struct sigaction sa = {0};
+  fd_set readfds;
   int ret;
-  struct iomux_ctx iomux;
   int status = EXIT_FAILURE;
-  struct sync_listener listener = {
-    .handler = {
-      .fd          = fd,
-      .source_func = on_accept,
-    },
-    .opts = *opts,
-  };
 
-  ret = iomux_init(&iomux);
-  if (ret != 0) {
-    perror("iomux_init");
+  /* block SIGCHLD from delivery - should only be delivered to pselect(2) */
+  ret = mask_sigchld(SIG_BLOCK);
+  if (ret < 0) {
     goto done;
   }
 
-  ret = iomux_add_source(&iomux, IOMUX_HANDLER(&listener));
+  /* set up SIGCHLD handler */
+  sa.sa_flags = 0;
+  sa.sa_handler = on_sigchld;
+  sigemptyset(&sa.sa_mask);
+  ret = sigaction(SIGCHLD, &sa, NULL);
   if (ret < 0) {
-    perror("iomux_add_source");
-    goto iomux_cleanup;
+    goto unblock_sigchld;
   }
 
-  ret = iomux_run(&iomux);
-  if (ret < 0) {
-    perror("iomux_run");
-    goto iomux_cleanup;
+  sigemptyset(&sigmask); /* mask within pselect */
+  for (;;) {
+    FD_ZERO(&readfds);
+    FD_SET(fd, &readfds);
+
+    ret = pselect(fd + 1, &readfds, NULL, NULL, NULL, &sigmask);
+    if (ret < 0 && errno != EINTR) {
+      perror("pselect");
+      goto default_sigchld;
+    }
+
+    if (got_sigchld_) {
+      got_sigchld_ = 0;
+      reap_children();
+    }
+
+    if (FD_ISSET(fd, &readfds)) {
+      on_accept(opts, fd);
+    }
   }
 
   status = EXIT_SUCCESS;
-iomux_cleanup:
-  iomux_cleanup(&iomux);
+default_sigchld:
+  signal(SIGCHLD, SIG_DFL);
+unblock_sigchld:
+  mask_sigchld(SIG_UNBLOCK);
 done:
   return status;
 }
