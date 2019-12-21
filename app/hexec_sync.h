@@ -28,6 +28,6 @@ struct hexec_sync_opts {
   int timeout;
 };
 
-int hexec_sync_run(struct hexec_sync_opts *opts, int fd);
+int hexec_sync_main(int argc, char **argv);
 
 #endif

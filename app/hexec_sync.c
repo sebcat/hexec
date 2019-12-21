@@ -27,8 +27,33 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
+#include <getopt.h>
+#include <limits.h>
 
+#include "lib/fs.h"
 #include "app/hexec_sync.h"
+
+#define DEFAULT_BACKLOG        SOMAXCONN
+#define DEFAULT_SYNC_TIMEOUT   10
+
+static struct opts {
+  const char *listen;
+  int backlog;
+  int timeout;
+} opts_ = {
+  .backlog      = DEFAULT_BACKLOG,
+  .timeout = DEFAULT_SYNC_TIMEOUT,
+};
+
+static const char *optstr_ = "l:b:t:h";
+
+static struct option options_[] = {
+  {"listen",       required_argument, NULL, 'l'},
+  {"backlog",      required_argument, NULL, 'b'},
+  {"timeout",      required_argument, NULL, 't'},
+  {"help",         no_argument,       NULL, 'h'},
+  {NULL,           0,                 NULL, 0},
+};
 
 static volatile sig_atomic_t got_sigchld_ = 0;
 
@@ -102,7 +127,7 @@ static void reap_children(void) {
   }
 }
 
-int hexec_sync_run(struct hexec_sync_opts *opts, int fd) {
+static int hexec_sync_run(struct hexec_sync_opts *opts, int fd) {
   sigset_t sigmask;
   struct sigaction sa = {0};
   fd_set readfds;
@@ -152,5 +177,88 @@ unblock_sigchld:
   mask_sigchld(SIG_UNBLOCK);
 done:
   return status;
+}
+
+static int int_or_die(const char *name, const char *s) {
+  long val;
+  char *end;
+
+  val = strtol(s, &end, 10);
+  if (val < INT_MIN || val > INT_MAX || *end != '\0') {
+    fprintf(stderr, "%s: invalid integer\n", name);
+    exit(EXIT_FAILURE);
+  }
+
+  return (int)val;
+}
+
+int hexec_sync_main(int argc, char *argv[]) {
+  int ret;
+  int lfd;
+  int status = EXIT_FAILURE;
+  const char *argv0 = argv[0];
+  struct hexec_sync_opts sync_opts = {0};
+
+  while ((ret = getopt_long(argc, argv, optstr_, options_, NULL)) != -1) {
+    switch (ret) {
+    case 'l':
+      opts_.listen = optarg;
+      break;
+    case 'b':
+      opts_.backlog = int_or_die("backlog", optarg);
+      break;
+    case 't':
+      opts_.timeout = int_or_die("timeout", optarg);
+      if (opts_.timeout < 0) {
+        fprintf(stderr, "sync-timeout: invalid value\n");
+        goto usage;
+      }
+      break;
+    case 'h':
+    default:
+      goto usage;
+    }
+  }
+
+  argv += optind;
+  argc -= optind;
+  if (argc <= 0) {
+    goto usage;
+  }
+
+  if (access(argv[0], F_OK|X_OK) != 0) {
+    perror(argv[0]);
+    goto done;
+  }
+
+  if (opts_.listen == NULL) {
+    fprintf(stderr, "listen: missing path\n");
+    goto done;
+  }
+
+  lfd = fs_mksock(opts_.listen, opts_.backlog);
+  if (lfd < 0) {
+    perror(opts_.listen);
+    goto done;
+  }
+
+  sync_opts.argv = argv;
+  sync_opts.argc = argc;
+  sync_opts.timeout = opts_.timeout;
+  status = hexec_sync_run(&sync_opts, lfd);
+/* close_lfd: */
+  close(lfd);
+done:
+  return status;
+usage:
+  fprintf(stderr,
+      "usage: %s [opts] <path>\n"
+      "opts:\n"
+      "  -l, --listen  <path>    Path to listening socket\n"
+      "  -b, --backlog    <n>    Max number of pending connections\n"
+      "  -t, --timeout    <n>    Execution timeout, in seconds\n"
+      "  -h, --help              This text\n"
+      , argv0);
+  return EXIT_FAILURE;
 }
 

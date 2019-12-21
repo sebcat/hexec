@@ -19,122 +19,49 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <limits.h>
-#include <stddef.h>
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <getopt.h>
-#include <signal.h>
-#include <errno.h>
 
-#include "lib/fs.h"
-#include "lib/iomux.h"
+#include "lib/macros.h"
 #include "app/hexec_sync.h"
 
-#define DEFAULT_BACKLOG        SOMAXCONN
-#define DEFAULT_SYNC_TIMEOUT   10
-
-static struct opts {
-  const char *listen;
-  int backlog;
-  int sync_timeout;
-} opts_ = {
-  .backlog      = DEFAULT_BACKLOG,
-  .sync_timeout = DEFAULT_SYNC_TIMEOUT,
-};
-
-static const char *optstr_ = "l:b:t:h";
-
-static struct option options_[] = {
-  {"listen",       required_argument, NULL, 'l'},
-  {"backlog",      required_argument, NULL, 'b'},
-  {"sync-timeout", required_argument, NULL, 't'},
-  {"help",         no_argument,       NULL, 'h'},
-  {NULL,           0,                 NULL, 0},
-};
-
-static int int_or_die(const char *name, const char *s) {
-  long val;
-  char *end;
-
-  val = strtol(s, &end, 10);
-  if (val < INT_MIN || val > INT_MAX || *end != '\0') {
-    fprintf(stderr, "%s: invalid integer\n", name);
-    exit(EXIT_FAILURE);
-  }
-
-  return (int)val;
-}
-
 int main(int argc, char *argv[]) {
-  int ret;
-  int lfd;
-  int status = EXIT_FAILURE;
+  char new_argv0[64];
   const char *argv0 = argv[0];
-  struct hexec_sync_opts sync_opts = {0};
+  int status = EXIT_FAILURE;
+  size_t i;
+  static const struct {
+    const char *name;
+    int (*func)(int, char **);
+  } subcmds[] = {
+    {"sync", hexec_sync_main},
+  };
 
-  while ((ret = getopt_long(argc, argv, optstr_, options_, NULL)) != -1) {
-    switch (ret) {
-    case 'l':
-      opts_.listen = optarg;
-      break;
-    case 'b':
-      opts_.backlog = int_or_die("backlog", optarg);
-      break;
-    case 't':
-      opts_.sync_timeout = int_or_die("sync-timeout", optarg);
-      if (opts_.sync_timeout < 0) {
-        fprintf(stderr, "sync-timeout: invalid value\n");
-        goto usage;
-      }
-      break;
-    case 'h':
-    default:
-      goto usage;
-    }
-  }
-
-  argv += optind;
-  argc -= optind;
-  if (argc <= 0) {
+  if (argc < 2) {
     goto usage;
   }
 
-  if (access(argv[0], F_OK|X_OK) != 0) {
-    perror(argv[0]);
-    goto done;
+  snprintf(new_argv0, sizeof(new_argv0), "%s-%s", argv[0], argv[1]);
+
+  for (i = 0; i < ARRAY_SIZE(subcmds); i++) {
+    if (strcmp(subcmds[i].name, argv[1]) == 0) {
+      argv[1] = new_argv0;
+      status = subcmds[i].func(argc - 1, &argv[1]);
+      break;
+    }
   }
 
-  if (opts_.listen == NULL) {
-    fprintf(stderr, "listen: missing path\n");
-    goto done;
+  if (i == ARRAY_SIZE(subcmds)) {
+    goto usage;
   }
 
-  lfd = fs_mksock(opts_.listen, opts_.backlog);
-  if (lfd < 0) {
-    perror(opts_.listen);
-    goto done;
-  }
-
-  sync_opts.argv = argv;
-  sync_opts.argc = argc;
-  sync_opts.timeout = opts_.sync_timeout;
-  status = hexec_sync_run(&sync_opts, lfd);
-/* close_lfd: */
-  close(lfd);
-done:
   return status;
 usage:
   fprintf(stderr,
-      "usage: %s [opts] <path>\n"
-      "opts:\n"
-      "  -l, --listen  <path>    Path to listening socket\n"
-      "  -b, --backlog    <n>    Max number of pending connections\n"
-      "  -h, --help              This text\n"
+      "usage: %s <sub-command> [args]\n"
+      "sub-commands:\n"
+      "  sync - evaluate SCGI requests in sync mode\n"
       , argv0);
   return EXIT_FAILURE;
 }
