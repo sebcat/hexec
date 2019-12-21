@@ -37,22 +37,13 @@
 #define DEFAULT_SYNC_TIMEOUT   10
 #define DEFAULT_NCONCURRENT    64
 
-struct hexec_sync_opts {
+struct opts {
   char **argv;
   int argc;
-  int timeout;
-  int nconcurrent;
-};
-
-static struct opts {
   const char *listen;
   int backlog;
   int timeout;
   int nconcurrent;
-} opts_ = {
-  .backlog      = DEFAULT_BACKLOG,
-  .timeout      = DEFAULT_SYNC_TIMEOUT,
-  .nconcurrent  = DEFAULT_NCONCURRENT,
 };
 
 static const char *optstr_ = "l:b:t:n:h";
@@ -77,7 +68,7 @@ static int mask_sigchld(int how) {
   return sigprocmask(how, &sigmask, NULL);
 }
 
-static void on_accept(struct hexec_sync_opts *opts, int fd) {
+static void on_accept(struct opts *opts, int fd) {
   int ret;
   pid_t pid;
 
@@ -140,7 +131,7 @@ static void reap_children(void) {
   }
 }
 
-static int hexec_sync_run(struct hexec_sync_opts *opts, int fd) {
+static int hexec_sync_run(struct opts *opts, int fd) {
   sigset_t sigmask;
   struct sigaction sa = {0};
   fd_set readfds;
@@ -213,26 +204,30 @@ int hexec_sync_main(int argc, char *argv[]) {
   int lfd;
   int status = EXIT_FAILURE;
   const char *argv0 = argv[0];
-  struct hexec_sync_opts sync_opts = {0};
+  static struct opts opts = {
+    .backlog      = DEFAULT_BACKLOG,
+    .timeout      = DEFAULT_SYNC_TIMEOUT,
+    .nconcurrent  = DEFAULT_NCONCURRENT,
+  };
 
   while ((ret = getopt_long(argc, argv, optstr_, options_, NULL)) != -1) {
     switch (ret) {
     case 'l':
-      opts_.listen = optarg;
+      opts.listen = optarg;
       break;
     case 'b':
-      opts_.backlog = int_or_die("backlog", optarg);
+      opts.backlog = int_or_die("backlog", optarg);
       break;
     case 't':
-      opts_.timeout = int_or_die("timeout", optarg);
-      if (opts_.timeout < 0) {
+      opts.timeout = int_or_die("timeout", optarg);
+      if (opts.timeout < 0) {
         fprintf(stderr, "timeout: invalid value\n");
         goto usage;
       }
       break;
     case 'n':
-      opts_.nconcurrent = int_or_die("nconcurrent", optarg);
-      if (opts_.nconcurrent <= 0) {
+      opts.nconcurrent = int_or_die("nconcurrent", optarg);
+      if (opts.nconcurrent <= 0) {
         fprintf(stderr, "nconcurrent: invalid value\n");
         goto usage;
       }
@@ -254,22 +249,20 @@ int hexec_sync_main(int argc, char *argv[]) {
     goto done;
   }
 
-  if (opts_.listen == NULL) {
+  if (opts.listen == NULL) {
     fprintf(stderr, "listen: missing path\n");
     goto done;
   }
 
-  lfd = fs_mksock(opts_.listen, opts_.backlog);
+  lfd = fs_mksock(opts.listen, opts.backlog);
   if (lfd < 0) {
-    perror(opts_.listen);
+    perror(opts.listen);
     goto done;
   }
 
-  sync_opts.argv = argv;
-  sync_opts.argc = argc;
-  sync_opts.timeout = opts_.timeout;
-  sync_opts.nconcurrent = opts_.nconcurrent;
-  status = hexec_sync_run(&sync_opts, lfd);
+  opts.argc = argc;
+  opts.argv = argv;
+  status = hexec_sync_run(&opts, lfd);
 /* close_lfd: */
   close(lfd);
 done:
