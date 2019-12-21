@@ -22,12 +22,6 @@
 #ifndef APP_HEXEC_SYNC_H__
 #define APP_HEXEC_SYNC_H__
 
-struct hexec_sync_opts {
-  char **argv;
-  int argc;
-  int timeout;
-};
-
 int hexec_sync_main(int argc, char **argv);
 
 #endif

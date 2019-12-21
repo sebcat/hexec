@@ -35,27 +35,39 @@
 
 #define DEFAULT_BACKLOG        SOMAXCONN
 #define DEFAULT_SYNC_TIMEOUT   10
+#define DEFAULT_NCONCURRENT    64
+
+struct hexec_sync_opts {
+  char **argv;
+  int argc;
+  int timeout;
+  int nconcurrent;
+};
 
 static struct opts {
   const char *listen;
   int backlog;
   int timeout;
+  int nconcurrent;
 } opts_ = {
   .backlog      = DEFAULT_BACKLOG,
-  .timeout = DEFAULT_SYNC_TIMEOUT,
+  .timeout      = DEFAULT_SYNC_TIMEOUT,
+  .nconcurrent  = DEFAULT_NCONCURRENT,
 };
 
-static const char *optstr_ = "l:b:t:h";
+static const char *optstr_ = "l:b:t:n:h";
 
 static struct option options_[] = {
   {"listen",       required_argument, NULL, 'l'},
   {"backlog",      required_argument, NULL, 'b'},
   {"timeout",      required_argument, NULL, 't'},
+  {"nconcurrent",  required_argument, NULL, 'n'},
   {"help",         no_argument,       NULL, 'h'},
   {NULL,           0,                 NULL, 0},
 };
 
-static volatile sig_atomic_t got_sigchld_ = 0;
+static volatile sig_atomic_t got_sigchld_;
+static int nchildren_;
 
 static int mask_sigchld(int how) {
   sigset_t sigmask;
@@ -107,6 +119,7 @@ static void on_accept(struct hexec_sync_opts *opts, int fd) {
       perror(opts->argv[0]);
       _exit(EXIT_FAILURE);
     } else {
+      nchildren_++;
       close(ret);
     }
   }
@@ -123,7 +136,7 @@ static void reap_children(void) {
   int status;
 
   while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-    /* TODO: Implement */
+    nchildren_--;
   }
 }
 
@@ -152,7 +165,10 @@ static int hexec_sync_run(struct hexec_sync_opts *opts, int fd) {
   sigemptyset(&sigmask); /* mask within pselect */
   for (;;) {
     FD_ZERO(&readfds);
-    FD_SET(fd, &readfds);
+
+    if (nchildren_ < opts->nconcurrent) {
+      FD_SET(fd, &readfds);
+    }
 
     ret = pselect(fd + 1, &readfds, NULL, NULL, NULL, &sigmask);
     if (ret < 0 && errno != EINTR) {
@@ -210,7 +226,14 @@ int hexec_sync_main(int argc, char *argv[]) {
     case 't':
       opts_.timeout = int_or_die("timeout", optarg);
       if (opts_.timeout < 0) {
-        fprintf(stderr, "sync-timeout: invalid value\n");
+        fprintf(stderr, "timeout: invalid value\n");
+        goto usage;
+      }
+      break;
+    case 'n':
+      opts_.nconcurrent = int_or_die("nconcurrent", optarg);
+      if (opts_.nconcurrent <= 0) {
+        fprintf(stderr, "nconcurrent: invalid value\n");
         goto usage;
       }
       break;
@@ -245,6 +268,7 @@ int hexec_sync_main(int argc, char *argv[]) {
   sync_opts.argv = argv;
   sync_opts.argc = argc;
   sync_opts.timeout = opts_.timeout;
+  sync_opts.nconcurrent = opts_.nconcurrent;
   status = hexec_sync_run(&sync_opts, lfd);
 /* close_lfd: */
   close(lfd);
