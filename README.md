@@ -13,5 +13,5 @@ In progress
 ## Usage
 
 - make
-- ./app/hexec --listen foo.sock ./test.sh
+- ./app/hexec sync --listen foo.sock misc/sample-cgi.sh
 - socat stdio unix-connect:foo.sock
