@@ -271,10 +271,11 @@ usage:
   fprintf(stderr,
       "usage: %s [opts] <path>\n"
       "opts:\n"
-      "  -l, --listen  <path>    Path to listening socket\n"
-      "  -b, --backlog    <n>    Max number of pending connections\n"
-      "  -t, --timeout    <n>    Execution timeout, in seconds\n"
-      "  -h, --help              This text\n"
+      "  -l, --listen       <path>    Path to listening socket\n"
+      "  -b, --backlog         <n>    Max number of pending connections\n"
+      "  -t, --timeout         <n>    Execution timeout, in seconds\n"
+      "  -n, --nconcurrent     <n>    Max number of concurrent processes\n"
+      "  -h, --help                   This text\n"
       , argv0);
   return EXIT_FAILURE;
 }
